@@ -67,8 +67,14 @@ Col_Remove = names(Col_NA[which(Col_NA>threshold_na)])
 Col_Mean = names(Col_NA[which(Col_NA<=threshold_na & Col_NA>0)])
 
 #Generating Subset of Data
-test <- test[,which(!names(test) %in% Col_Remove)]
+#test <- test[,which(!names(test) %in% Col_Remove)]
 train <- train[,which(!names(train) %in% Col_Remove)]
+
+#Mode Imputation Function
+getmode <- function(v) {
+   uniqv <- unique(v[!is.na(v)])
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
 
 #Fill in Remaining NA Data - Use Mean Method since Large Dataset
 #Examine Data
@@ -80,10 +86,10 @@ for (column in Col_Mean){
       train[is.na(col_dat),column] = mean(col_dat, na.rm=TRUE)
       
   } else if (class(col_dat) == "integer"){
-      train[is.na(col_dat),column] = round(mean(col_dat, na.rm=TRUE))
+      train[is.na(col_dat),column] = getmode(col_dat)
       
   } else{
-    print("Not Accounted For Yet")
+      print("Not Accounted For Yet")
   }
 }
 
