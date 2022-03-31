@@ -98,6 +98,15 @@ corr_check <- cor(train[,which(!sapply(train, class) %in% "character")], use = "
 #Once correlations determined know to only use 1 of 2 most likely (to avoid Multi-Collinearity Issues)
 #Or, can utilize PCA to deal with this instead.
 
+
+
+
+
+
+
+#Export to Cleaned Train CSV Set
+write.csv(train,"Data/train_clean.csv", row.names = FALSE)
+
 ```
 
 
