@@ -53,7 +53,7 @@ library(tinytex)
 ```{r, include=FALSE, echo=FALSE, message=FALSE}
 
 #test <- read.csv("test.csv")
-train <- read.csv("train.csv")
+train <- read.csv("Data/train.csv")
 
 #Begin by examining NA values
 Tot_NA <- sum(is.na(train))/prod(dim(train)) #Total NA Values
