@@ -55,6 +55,9 @@ library(tinytex)
 #test <- read.csv("test.csv")
 train <- read.csv("Data/train.csv")
 
+#Remove ID Column (Useless)
+train$Id = NULL
+
 #Begin by examining NA values
 Tot_NA <- sum(is.na(train))/prod(dim(train)) #Total NA Values
 
@@ -64,7 +67,7 @@ kable(Col_NA[which(Col_NA>0)], caption="Column NA Rates", col.names = c("NA Perc
 #Remove NA Columns > Threshold
 threshold_na = 0.4
 Col_Remove = names(Col_NA[which(Col_NA>threshold_na)])
-Col_Mean = names(Col_NA[which(Col_NA<=threshold_na & Col_NA>0)])
+Col_Impute = names(Col_NA[which(Col_NA<=threshold_na & Col_NA>0)])
 
 #Generating Subset of Data
 #test <- test[,which(!names(test) %in% Col_Remove)]
@@ -78,7 +81,7 @@ getmode <- function(v) {
 
 #Fill in Remaining NA Data - Use Mean Method since Large Dataset
 #Examine Data
-for (column in Col_Mean){
+for (column in Col_Impute){
   col_dat = train[,column]
   hist(col_dat, main=column, sub=class(col_dat))
   
@@ -111,7 +114,12 @@ corr_check <- cor(train[,which(!sapply(train, class) %in% "character")], use = "
 
 
 #Export to Cleaned Train CSV Set
+train_y = subset(train, select=c(Response))
+train_x = subset(train, select=-c(Response))
+
 write.csv(train,"Data/train_clean.csv", row.names = FALSE)
+write.csv(train_y,"Data/train_y_clean.csv", row.names = FALSE)
+write.csv(train_x,"Data/train_x_clean.csv", row.names = FALSE)
 
 ```
 

@@ -1,0 +1,153 @@
+---
+title: "ST694 Project"
+author: "Douglas Bowen"
+date: '2022-03-31'
+output: html_document
+---
+
+```{r, include=FALSE, echo=FALSE, message=FALSE}
+#Setup Chunk
+knitr::opts_chunk$set(echo = TRUE,tidy.opts=list(width.cutoff=80),tidy=TRUE)
+
+#Required Libraries for Course
+library(ISLR2)
+library(class)
+library(boot)
+library(glmnet) #Added A2/A3
+library(pls) #Added A2/A3
+library(splines) #Added A3
+library(leaps)#Added A3
+library(gam) #Added A3
+#remove.packages(c("tree","randomForest"))
+#install.packages(c("tree","randomForest"))
+library(tree) #Added A4
+library(randomForest) #Added A4
+
+#Optional Libraries Not Recommended By Course
+#Libraries for Graphing
+#library(tidyverse)
+library(scales)
+
+#Other Useful Libraries (for R Markdown)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+library(formatR)
+
+#Old Packages from Prior Courses
+library(multcomp)
+library(multcompView)
+library(pander)
+library(MASS)
+library(tinytex)
+
+
+#install.packages(c("ISLR2","class","boot","tidyverse","scales","knitr","kableExtra","latex2exp","multcomp","multcompview","pander","MASS","gridExtra","leaps","bestglm","corrplot"))
+
+#Notes:
+#Use "install.packages('library_name_here')" then use "library(library_name_here)"
+```
+
+# Loading Data
+
+```{r, include=FALSE, echo=FALSE, message=FALSE}
+#Specific Libraries Used
+if (!require("PCAmixdata")) install.packages("PCAmixdata")
+library(PCAmixdata)
+
+#Initialize
+file = "train_x_clean.csv"
+
+folder_path = "Data/"
+full_path = paste(folder_path,file, sep="")
+
+df <- read.csv(full_path)
+
+
+
+
+#https://rdrr.io/cran/PCAmixdata/man/PCAmix.html
+
+int_cols <- colnames(df[unlist(lapply(df, is.integer))])
+
+## ASSUMING INTEGERS ARE NUMBERS AND NOT FACTORS
+chr_cols <- colnames(df[unlist(lapply(df, is.character))]) #Treats Character as Discrete
+num_cols <- colnames(df[unlist(lapply(df, is.numeric))]) #Treats Numeric/Integer as Continuous
+
+#TAKES ~10 SECONDS TO RUN
+PCA_Fit_Int <- PCAmix(
+      X.quanti = df[num_cols],
+      X.quali = df[chr_cols],
+      ndim = 5,
+      rename.level = FALSE,
+      weight.col.quanti = NULL,
+      weight.col.quali = NULL,
+      graph = FALSE)
+
+summary(PCA_Fit_Int)
+PCA_Fit_Int$eig
+PCA_Fit_Int$sqload
+PCA_Fit_Int$ind
+
+
+
+
+
+
+## ASSUMING INTEGERS ARE FACTORS AND NOT NUMBERS
+disc_cols <- append(int_cols, chr_cols) #Treats Integer/Character as Discrete/Factor
+cont_cols <- colnames(df[which(!colnames(df) %in% disc_cols)]) #Treats Numeric as Continuous
+
+df[disc_cols] <- lapply(df[disc_cols] , factor)
+
+#TAKES ~5 MINUTES TO RUN
+PCA_Fit_Fac <- PCAmix(
+      X.quanti = df[cont_cols],
+      X.quali = df[disc_cols],
+      ndim = 5,
+      rename.level = TRUE,
+      weight.col.quanti = NULL,
+      weight.col.quali = NULL,
+      graph = FALSE)
+
+summary(PCA_Fit_Fac)
+PCA_Fit_Fac$eig
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Export to Cleaned Train CSV Set
+#write.csv(#TBD,"Data/train_PCA.csv", row.names = FALSE)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
