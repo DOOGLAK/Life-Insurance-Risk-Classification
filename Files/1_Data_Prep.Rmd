@@ -133,6 +133,8 @@ train <- train[,which(!names(train) %in% corr_remove)]
 
 
 
+#Temporary Assumption
+train["Response"] <- ifelse(train["Response"] < 7, 0, 1)
 
 
 
