@@ -63,7 +63,10 @@ full_path = paste(folder_path,file, sep="")
 
 df <- read.csv(full_path)
 
-
+### USING ST694 VERSION
+##num_cols <- colnames(df[unlist(lapply(df, is.numeric))])
+##my_PCA <- princomp(df[,num_cols], cor=FALSE)
+##my_PCA$loadings
 
 
 #https://rdrr.io/cran/PCAmixdata/man/PCAmix.html
@@ -87,34 +90,31 @@ PCA_Fit_Int <- PCAmix(
 summary(PCA_Fit_Int)
 PCA_Fit_Int$eig
 PCA_Fit_Int$sqload
-PCA_Fit_Int$ind
+#PCA_Fit_Int$ind #for Raw dataset
 
 
 
 
 
-
-## ASSUMING INTEGERS ARE FACTORS AND NOT NUMBERS
-disc_cols <- append(int_cols, chr_cols) #Treats Integer/Character as Discrete/Factor
-cont_cols <- colnames(df[which(!colnames(df) %in% disc_cols)]) #Treats Numeric as Continuous
-
-df[disc_cols] <- lapply(df[disc_cols] , factor)
-
-#TAKES ~5 MINUTES TO RUN
-PCA_Fit_Fac <- PCAmix(
-      X.quanti = df[cont_cols],
-      X.quali = df[disc_cols],
-      ndim = 5,
-      rename.level = TRUE,
-      weight.col.quanti = NULL,
-      weight.col.quali = NULL,
-      graph = FALSE)
-
-summary(PCA_Fit_Fac)
-PCA_Fit_Fac$eig
-
-
-
+# ########CAN IGNORE THIS SECTION V (LEFT IN FOR REFERENCE LATER IF NEEDED)
+# ## ASSUMING INTEGERS ARE FACTORS AND NOT NUMBERS
+# disc_cols <- append(int_cols, chr_cols) #Treats Integer/Character as Discrete/Factor
+# cont_cols <- colnames(df[which(!colnames(df) %in% disc_cols)]) #Treats Numeric as Continuous
+# 
+# df[disc_cols] <- lapply(df[disc_cols] , factor)
+# 
+# #TAKES ~5 MINUTES TO RUN
+# PCA_Fit_Fac <- PCAmix(
+#       X.quanti = df[cont_cols],
+#       X.quali = df[disc_cols],
+#       ndim = 5,
+#       rename.level = TRUE,
+#       weight.col.quanti = NULL,
+#       weight.col.quali = NULL,
+#       graph = FALSE)
+# 
+# summary(PCA_Fit_Fac)
+# PCA_Fit_Fac$eig
 
 
 

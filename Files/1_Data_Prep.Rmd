@@ -25,7 +25,7 @@ library(randomForest) #Added A4
 
 #Optional Libraries Not Recommended By Course
 #Libraries for Graphing
-#library(tidyverse)
+library(tidyverse)
 library(scales)
 
 #Other Useful Libraries (for R Markdown)
@@ -99,13 +99,36 @@ for (column in Col_Impute){
 #Examine Correlation Matrix for Colinearity Prior to Analysis (maybe move above)
 threshold_corr = 0.7
 corr_check <- cor(train[,which(!sapply(train, class) %in% "character")], use = "complete.obs")
-(corr_check>threshold_corr & corr_check != 1)
-#high_corr <- corr_check[corr_check>threshold_corr & corr_check != 1]
+corr_check <- as.matrix(corr_check)
+corr_check[upper.tri(corr_check)] <- 0
 
-#Still need to pull what colname/rowname those values associate with - how?
+corr_total <- length(corr_check[corr_check>threshold_corr & corr_check != 1])
+corr_pairs <- rep(NA, corr_total)
+cnt=1
 
-#Once correlations determined know to only use 1 of 2 most likely (to avoid Multi-Collinearity Issues)
-#Or, can utilize PCA to deal with this instead.
+for (i in 1:nrow(corr_check)){
+  for (j in 1:ncol(corr_check)){
+    if (corr_check[i,j]>threshold_corr & corr_check[i,j] != 1){
+      rownames(corr_check)[i]
+      colnames(corr_check)[j]
+      corr_pairs[cnt] <- paste(rownames(corr_check)[i], ":",colnames(corr_check)[j], sep="")
+      cnt=cnt+1
+    }
+  }
+}
+
+corr_pairs <- str_split_fixed(corr_pairs,":",2)
+corr_remove <- unique(corr_pairs[,1])
+
+#Remove One of Two Highly Co-linear Terms
+train <- train[,which(!names(train) %in% corr_remove)]
+
+
+
+#Or, can utilize PCA to deal with this instead. --> No, actually good to remove multicolinearity in advance of PCA
+#can give PCA unfair wieghting
+# including the nearly-redundant variables can cause the PCA to overemphasize their contribution
+#https://stats.stackexchange.com/questions/50537/should-one-remove-highly-correlated-variables-before-doing-pca
 
 
 
