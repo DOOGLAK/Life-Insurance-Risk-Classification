@@ -1,0 +1,223 @@
+---
+title: "ST694 Project"
+author: "Douglas Bowen"
+date: '2022-03-31'
+output: html_document
+---
+
+```{r, include=FALSE, echo=FALSE, message=FALSE}
+#Setup Chunk
+knitr::opts_chunk$set(echo = TRUE,tidy.opts=list(width.cutoff=80),tidy=TRUE)
+
+#Required Libraries for Course
+library(ISLR2)
+library(class)
+library(boot)
+library(glmnet) #Added A2/A3
+library(pls) #Added A2/A3
+library(splines) #Added A3
+library(leaps)#Added A3
+library(gam) #Added A3
+#remove.packages(c("tree","randomForest"))
+#install.packages(c("tree","randomForest"))
+library(tree) #Added A4
+library(randomForest) #Added A4
+
+#Optional Libraries Not Recommended By Course
+#Libraries for Graphing
+library(tidyverse)
+library(scales)
+
+#Other Useful Libraries (for R Markdown)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+library(formatR)
+
+#Old Packages from Prior Courses
+library(multcomp)
+library(multcompView)
+library(pander)
+library(MASS)
+library(tinytex)
+
+
+#install.packages(c("ISLR2","class","boot","tidyverse","scales","knitr","kableExtra","latex2exp","multcomp","multcompview","pander","MASS","gridExtra","leaps","bestglm","corrplot"))
+
+#Notes:
+#Use "install.packages('library_name_here')" then use "library(library_name_here)"
+```
+
+# Loading Data
+
+```{r, include=FALSE, echo=FALSE, message=FALSE}
+
+#test <- read.csv("test.csv")
+df <- read.csv("data_final/train.csv")
+
+#Remove ID Column (Useless)
+df$Id = NULL
+
+df_Y = df$Response
+df_X = subset(df, select=-c(Response))
+
+#Adjust Product Category
+df_X$Product_Info_2_Chr = as.character(substr(df_X$Product_Info_2, 1, 1))
+df_X$Product_Info_2_Int = as.integer(substr(df_X$Product_Info_2, 2, 100000))
+df_X$Product_Info_2 = NULL
+
+
+
+
+#Begin by examining NA values
+Tot_NA <- sum(is.na(df_X))/prod(dim(df_X)) #Total NA Values
+
+Col_NA <- sort(colMeans(is.na(df_X)), decreasing=TRUE) #Column NA Values
+kable(Col_NA[which(Col_NA>0)], caption="Column NA Rates", col.names = c("NA Percentage")) #Column NA Values > 0%
+
+#Remove NA Columns > Threshold
+threshold_na = 0.4
+Col_Remove = names(Col_NA[which(Col_NA>threshold_na)])
+Col_Impute = names(Col_NA[which(Col_NA<=threshold_na & Col_NA>0)])
+
+#Generating Subset of Data
+df_X <- df_X[,which(!names(df_X) %in% Col_Remove)]
+
+
+
+
+
+
+
+
+
+
+
+
+
+Col_Int = names(df_X[,unlist(lapply(df_X, is.integer))])
+Col_Cnt = rep(NULL,1)
+Col_Cat = rep(NULL,1)
+
+threshold_count_vs_cat = 50
+
+for (column in Col_Int){
+  unique_entries = nrow(unique(df_X[column]))
+  
+  if (unique_entries >= threshold_count_vs_cat){
+    Col_Cnt = append(Col_Cnt, column)
+  }
+  else{
+    Col_Cat = append(Col_Cat, column)
+  }
+  
+}
+
+Col_Cat = append(Col_Cat, 'Product_Info_2_Chr')
+
+Col_Flt = names(df_X[which((names(df_X) %in% Col_Cnt | !(names(df_X) %in% Col_Cat)))])
+
+
+
+
+
+
+
+
+#Mode Imputation Function
+getmode <- function(v) {
+   uniqv <- unique(v[!is.na(v)])
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+#Fill in Remaining NA Data
+for (column in Col_Impute){
+  col_dat = df_X[,column]
+  
+  if (class(col_dat) == "numeric"){
+      #print(class(col_dat))
+      #print(column)
+      df_X[is.na(col_dat),column] = mean(col_dat, na.rm=TRUE)
+      
+  } else if (class(col_dat) == "integer"){
+      df_X[is.na(col_dat),column] = getmode(col_dat)
+      #print(class(col_dat))
+      #print(column)
+      
+  } else{
+      print("Not Accounted For Yet")
+  }
+}
+
+#Sum of Medical Keywords:
+Col_Keyword = names(df_X[grepl('Keyword', names(df_X), fixed = TRUE)])
+df_X$Medical_Keyword_Sum = as.integer(apply(df_X[Col_Keyword],1,sum))
+
+#Examine Correlation Matrix for Colinearity Prior to Analysis (maybe move above)
+threshold_corr = 0.8
+corr_check <- cor(df_X[,which(!sapply(df_X, class) %in% "character")], use = "complete.obs")
+corr_check <- as.matrix(corr_check)
+corr_check[upper.tri(corr_check)] <- 0
+
+corr_total <- length(corr_check[corr_check>threshold_corr & corr_check != 1])
+corr_pairs <- rep(NA, corr_total)
+cnt=1
+
+for (i in 1:nrow(corr_check)){
+  for (j in 1:ncol(corr_check)){
+    if (corr_check[i,j]>threshold_corr & corr_check[i,j] != 1){
+      rownames(corr_check)[i]
+      colnames(corr_check)[j]
+      corr_pairs[cnt] <- paste(rownames(corr_check)[i], ":",colnames(corr_check)[j], sep="")
+      cnt=cnt+1
+    }
+  }
+}
+
+corr_pairs <- str_split_fixed(corr_pairs,":",2)
+corr_remove <- unique(corr_pairs[,1])
+
+#Remove One of Two Highly Co-linear Terms
+df_X <- df_X[,which(!names(df_X) %in% corr_remove)]
+
+
+#Update Categories
+Col_Cat = Col_Cat[which(!(Col_Cat %in% corr_remove))]
+#Col_Int2Float = Col_Int2Float[which(!(Col_Int2Float %in% "Product_Info_2_Chr"))]
+#df_X[Col_Cat] = as.character(df_X[Col_Cat])
+
+
+df_X$Response = df_Y
+train_multi = df_X
+write.csv(train_multi,"data_final/train_clean_multi.csv", row.names = FALSE)
+
+
+train_binary = train_multi
+train_binary$Response <- ifelse(train_binary$Response < 7, 0, 1)
+write.csv(train_binary,"data_final/train_clean_binary.csv", row.names = FALSE)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
