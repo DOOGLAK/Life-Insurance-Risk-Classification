@@ -1,0 +1,1066 @@
+
+#LOAD LIBRARIES
+```{r}
+library(tinytex)
+library(knitr)
+library(dplyr)
+library(stringr)
+library(caret)
+library(randomForest) #RANDOM FOREST
+library(pROC) #ROC CURVE
+library(rpart) #DECISSION TREE
+library(rpart.plot) #DECISSION TREE
+library(e1071)
+library(datasets)
+library(class)
+library(tidyr)
+library(tidyverse)
+library(broom)
+library(AICcmodavg) #ANOVA feature selection
+#clustering
+library(cluster)
+library(ggplot2)
+library(factoextra)
+library(dendextend)
+library(stats)
+library(graphics)
+```
+
+
+
+
+
+
+
+
+
+
+#LOAD THE DATASET
+```{r}
+train<-read.csv("H:/Windows Folders/Downloads/train.csv")
+test<-read.csv("H:/Windows Folders/Downloads/test.csv") #There is no prediction column for validation hence we will not be using this dataset
+sum(is.na(train))
+```
+
+
+
+
+
+
+
+
+
+
+#TREATMENT FOR MISSING VALUES
+```{r}
+head(train)
+
+#Removing the unique ID column 
+train<-train[-c(1)]
+
+Tot_NA <- sum(is.na(train))/prod(dim(train)) #proportion of missing values
+
+Col_NA <- sort(colMeans(is.na(train)), decreasing=TRUE) #Column NA Values
+kable(Col_NA[which(Col_NA>0)], caption="Column NA Rates", col.names = c("NA Percentage")) #Column NA Values > 0%
+
+#Remove NA Columns > Threshold
+threshold_na = 0.4
+Col_Remove = names(Col_NA[which(Col_NA>threshold_na)]) #These columns will be eliminated because the missing values are greater than 40% of the total entries in that field
+
+#Columns which have missing values but below threhold
+Col_Mean = names(Col_NA[which(Col_NA<=threshold_na & Col_NA>0)]) 
+Col_Impute = names(Col_NA[which(Col_NA<=threshold_na & Col_NA>0)])
+
+train <- train[,which(!names(train) %in% Col_Remove)] #Remove columns where NA exceeds the threshold value
+
+#Removing the NA's in other columns - Examine whether they are categorical (MODE) or numerical (MEAN)
+Col_Mean
+
+head(train$Family_Hist_4) #numerical - mean
+head(train$Employment_Info_6) #numerical - mean
+head(train$Medical_History_1) #Categorical - mode
+head(train$Employment_Info_4) #numerical - mean
+head(train$Employment_Info_1) #numerical - mean
+
+#since medical_history_1 is a categorical variable it will be replaced with the mode instead of the mean 
+Col_Impute = Col_Impute[-c(3)] 
+Col_Mean = Col_Mean[-c(3)]
+
+#Mode Imputation Function
+getmode <- function(v) {
+   uniqv <- unique(v[!is.na(v)])
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+#Mode for missing NA's in categorical
+train$Medical_History_1[which(is.na(train$Medical_History_1))] <- getmode(train$Medical_History_1)
+
+#Mean for missing NA's in numerical
+train$Family_Hist_4[which(is.na(train$Family_Hist_4))] <- mean(train$Family_Hist_4, na.rm = TRUE)
+train$Employment_Info_6[which(is.na(train$Employment_Info_6))] <- mean(train$Employment_Info_6, na.rm = TRUE)
+train$Employment_Info_4[which(is.na(train$Employment_Info_4))] <- mean(train$Employment_Info_4, na.rm = TRUE)
+train$Employment_Info_1[which(is.na(train$Employment_Info_1))] <- mean(train$Employment_Info_1, na.rm = TRUE)
+
+#Validate if all missing values are dealt with
+sum(is.na(train))
+dim(train)
+```
+
+
+
+
+
+
+
+
+
+
+#FEATURES ENGINEERING
+```{r}
+#Product_info_2 has been factorized into 2 columns thereby reducing the number of factors
+
+train$Product_Info_2_char <- as.factor(substr(train$Product_Info_2, 1, 1))
+head(train$Product_Info_2_char)
+train$Product_Info_2_num <- as.factor(substr(train$Product_Info_2, 2, 2))
+head(train$Product_Info_2_num)
+
+str(train)
+train<-train[-c(2)] #Once the 2 new columns are created, remove the original
+
+train.base<-train #Backup train.base has been created
+
+train$Med_keyword_count <- as.numeric(apply(train[,70:117], 1, sum)) #Adding the keywords
+head(train$Med_keyword_count)
+```
+
+
+
+
+
+
+
+
+
+
+
+#FORMATTING THE DATA
+```{r}
+str(train)
+names(train)
+dim(train)
+
+train[,1:2] <-lapply(train[,1:2],as.factor)
+train[,4:6] <-lapply(train[,4:6],as.factor)
+train[,c(12,13,15)] <-lapply(train[,c(12,13,15)],as.factor)
+train[,17:31] <-lapply(train[,17:30],as.factor)
+train[,33:117] <-lapply(train[,33:117],as.factor)
+train[,c(33,34)] <-lapply(train[,c(33,34)],as.numeric)
+
+str(train[,80:118]) #allows us to see till the very last column
+
+train$Response<-as.factor(train$Response)
+
+summary(train$Med_keyword_count)
+#train$Med_keyword_count<-as.factor(train$Med_keyword_count) This can be converted to factor or left as integer. For now this has been left as integers
+```
+
+
+
+
+
+
+
+
+
+
+
+#CHECK THE DATA FOR OUTLIERS
+```{r}
+boxplot(train[1:10])$Response
+boxplot(train[11:20])$Response
+boxplot(train[21:30])$Response
+boxplot(train[31:40])$Response
+boxplot(train[41:50])$Response
+boxplot(train[51:60])$Response
+boxplot(train[61:70])$Response
+boxplot(train[71:80])$Response
+boxplot(train[81:90])$Response
+boxplot(train[91:100])$Response
+boxplot(train[101:110])$Response
+boxplot(train[111:121])$Response
+
+boxplot(train$Product_Info_2_char)$Response
+
+boxplot(train$Product_Info_2_num)$Response #NOT AN OUTLIER - MANY RECORDS FOR CATEGORY 8
+table(train$Product_Info_2_num)
+
+boxplot(train$Medical_History_1)$Response #INVESTIGATE - there is some skewness observed here (Revisit after model fitting)
+summary(train$Medical_History_1)
+boxplot(train$Medical_History_2)$Response #INVESTIGATE - slight skewness can be seen (Revisit after model fitting) 
+summary(train$Medical_History_2)
+
+#NO MAJOR CONCERN WITH OUTLIER SO WE MOVE AHEAD
+```
+
+
+
+
+
+
+
+
+
+
+
+#DATA REDUCTION
+```{r}
+#Medical_keyword_1 to Medical_Keyword_48 has many 0's
+#Typically indicating if any of those lives have the medical keywords in them
+#instead of using that many columns with 0 values, we have added the values indicating the total number of medical keywords in each insured portfolio
+
+names(train[70]) #Medical_Keyword_1
+names(train[117]) #Medical_Keyword_48
+
+train<-train[,-c(70:117)]
+str(train)
+
+#CHECK FOR MULTI-COLLINEARITY
+cor(train[, unlist(lapply(train, is.numeric))]) #CHECK FOR MULTI-COLLINEARITY
+#ONLY BMI AND Wt have a collinearity of 85. Hence, no column has been removed for now. 
+```
+
+#CHECK FOR DATA IMBALANCE 
+```{r}
+train$Response<-as.numeric(train$Response)
+response_freq<-hist(train$Response,col = "steel blue")
+response_freq
+train$Response<-as.factor(train$Response)
+```
+As visible from the frequency diagram, class 8 (highest level of risk) seems to have the most amount of data and 3 (&4) has the least. There are two ways to correct for "DATA IMBALANCE" 
+1. Combining 7+8 as "High Risk" & the others will be "Low Risk"
+Since the magnitude of risk increases with each next category (0-8), intuitively it would be okay to combine 7&8 and classify that as "High-Risk" while the remaining categories would be "Low/Medium Risk". Now, converting the problem to a binary classification problem.  
+
+
+
+
+
+
+
+
+
+
+#CONVERTING TO A BINARY PROBLEM
+```{r}
+train_binary<-train
+train_binary$Response<-as.numeric(train_binary$Response)
+summary(train_binary$Response)
+
+train_binary$Response_binary <- ifelse(train_binary$Response > 6, 1, 0)
+train_binary$Response_binary<-as.factor(train_binary$Response_binary)
+summary(train_binary$Response_binary)
+
+colnames(train_binary) #Response_binary is now the required response variable
+names(train_binary)[70]
+train_binary <- train_binary[,-c(70)] #delete the multi-class response variable
+
+dim(train_binary)
+```
+
+
+
+
+
+
+
+
+
+#MERGING FACTORS WHICH HAVE A VERY FEW OBSERVATIONS INTO 1 FACTOR AS THIS MAY GIVE ERROR WHILE FITTING THE MODEL. 
+Example - Few factors had only 1-2 observations. These observations can possibly be a part of the TEST DATA and not be present in the TRAIN DATA. This will throw an error while making out predictions. Hence this merging was carried out, and then we go on to split the data into TRAIN & TEST
+
+```{r}
+#MERGING FACTORS WITH VERY FEW OBSERVATIONS AS IT GIVES ERROR WHILE FITTING THE MODEL
+
+Merge.factors <- function(x, p) { 
+  #Combines factor levels in x that are less than a specified proportion, p.
+  t <- table(x)                 
+  less <- subset(t, prop.table(t) < p)
+  more <- subset(t, prop.table(t) >= p)
+  other <- rep("Other", sum(less))
+  new.table <- c(more, table(other))
+  new.x <- as.factor(rep(names(new.table), new.table))
+  return(new.x)
+}
+
+table(train_binary$Product_Info_3)
+train_binary$Product_Info_3<-Merge.factors(train_binary$Product_Info_3,0.005)
+
+
+table(train_binary$Medical_History_17)
+train_binary$Medical_History_17 <- ifelse(train_binary$Medical_History_17 == 1, 3,train_binary$Medical_History_17) 
+train_binary$Medical_History_17<-as.factor(train_binary$Medical_History_17)
+
+table(train_binary$Employment_Info_2)
+train_binary$Employment_Info_2<-Merge.factors(train_binary$Employment_Info_2,0.005)
+
+table(train_binary$Insurance_History_3)
+train_binary$Insurance_History_3 <- ifelse(train_binary$Insurance_History_3 == 2, 3, train_binary$Insurance_History_3)
+train_binary$Insurance_History_3<-as.factor(train_binary$Insurance_History_3)
+```
+
+
+
+
+
+
+
+
+
+#SPLIT THE DATA INTO TEST AND TRAIN WHICH WILL BE USED FOR MODEL BUILDING
+```{r}
+
+set.seed(1)
+trainIndex_binary <- createDataPartition(train_binary$Response_binary, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+
+train.binary.data <- train_binary[ trainIndex_binary,]
+test.binary.data  <- train_binary[-trainIndex_binary,]
+```
+
+
+
+
+
+
+
+
+
+
+#FIT A LOGISTIC REGRESSION MODEL TO ASSESS THE ACCURACY
+```{r}
+#FIT A LOGISTIC MODEL ON ALL THE DIMENSIONS
+logit.reg <- glm(Response_binary ~ ., data = train.binary.data, family = "binomial") 
+summary(logit.reg)
+
+# use predict() with type = "response" to compute predicted probabilities. 
+logit.reg.pred <- predict(logit.reg, test.binary.data, type = "response")
+logit.reg.pred.train <- predict(logit.reg, train.binary.data, type = "response")
+
+# first 5 actual and predicted records
+data.frame(actual = test.binary.data$Response_binary[1:5], predicted = logit.reg.pred[1:5])
+
+# classification
+trainEstimatedResponse=ifelse(logit.reg.pred.train >0.5,1,0)
+trainEstimatedResponse
+testEstimatedResponse=ifelse(logit.reg.pred >0.5,1,0)
+testEstimatedResponse
+
+
+# Confusion matrix
+#Accuracy, Estimation
+table(train.binary.data$Response_binary, trainEstimatedResponse)
+table(test.binary.data$Response_binary, testEstimatedResponse)
+
+#Accuracy
+mean(trainEstimatedResponse==train.binary.data$Response_binary)
+mean(testEstimatedResponse==test.binary.data$Response_binary)
+
+train.cm.log<-confusionMatrix(as.factor(ifelse(logit.reg.pred.train>0.5, 1, 0)), 
+                train.binary.data$Response_binary)
+test.cm.log<-confusionMatrix(as.factor(ifelse(logit.reg.pred>0.5, 1, 0)), 
+                test.binary.data$Response_binary)
+train.cm.log
+test.cm.log
+
+# create empty accuracy table
+accT = c() 
+
+# compute accuracy per cutoff
+for (cut in seq(0,1,0.1)){
+  cm <- confusionMatrix(as.factor(ifelse(logit.reg.pred>cut, 1, 0)), 
+                        test.binary.data$Response_binary)
+  accT = c(accT, cm$overall[1])
+}
+accT
+
+# plot accuracy
+plot(accT ~ seq(0,1,0.1), xlab = "Cutoff Value", ylab = "", type = "l", ylim = c(0, 1))
+lines(1-accT ~ seq(0,1,0.1), type = "l", lty = 2)
+legend("topright",  c("accuracy", "overall error"), lty = c(1, 2), merge = TRUE)
+
+test_roc = roc(test.binary.data$Response_binary ~ logit.reg.pred, plot = TRUE, print.auc = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+#FIT A RANDOM FOREST MODEL AND ASSESS ACCURACY
+```{r}
+set.seed(1)
+
+sqrt(dim(train.binary.data)[2]) #Value of mtry
+
+rf <- randomForest(as.factor(Response_binary) ~ ., data = train.binary.data, ntree = 500, 
+                   mtry = 9, nodesize = 5, importance = TRUE, parms = list(loss = lossmatrix))  
+
+varImpPlot(rf, type = 1)
+
+rf.pred <- predict(rf, test.binary.data)
+
+test.cm.rf.1<-confusionMatrix(rf.pred, as.factor(test.binary.data$Response_binary))
+
+#after removing the loss matrix
+rf_2 <- randomForest(as.factor(Response_binary) ~ ., data = train.binary.data, ntree = 500, 
+                   mtry = 9, nodesize = 5, importance = TRUE)  
+
+varImpPlot(rf_2, type = 1)
+
+rf.pred_2 <- predict(rf_2, test.binary.data)
+
+test.cm.rf.2<-confusionMatrix(rf.pred_2, as.factor(test.binary.data$Response_binary))
+
+test.cm.rf.1
+test.cm.rf.2
+
+rf.roc<-roc(train.binary.data$Response_binary,rf$votes[,2])
+plot(rf.roc,print.auc = TRUE)
+auc(rf.roc)
+```
+
+
+
+
+
+
+
+
+
+#FIT A DECISSION TREE MODEL AND ASSESS ACCURACY
+```{r}
+set.seed(1)
+
+# classification tree
+default.ct <- rpart(Response_binary ~ ., data = train.binary.data, method = "class")
+length(default.ct$frame$var[default.ct$frame$var == "<leaf>"])
+## Ans 4
+
+# plot tree
+prp(default.ct, type = 2, extra = 1, under = TRUE, split.font = 1, varlen = -10,  box.palette=c("red", "green"))
+
+#### The full Tree
+# argument cp sets the smallest value for the complexity parameter.
+# argument  minsplit requires that the minimum number of observations in a node be 5 before attempting
+deeper.ct <- rpart(Response_binary ~ ., data = train.binary.data, method = "class", cp = 0,minsplit = 30)
+
+# count number of leaves
+length(deeper.ct$frame$var[deeper.ct$frame$var == "<leaf>"])
+## 1051
+
+# plot tree
+prp(deeper.ct, type = 1, extra = 1, under = TRUE, split.font = 1, varlen = -10,
+    box.col=ifelse(deeper.ct$frame$var == "<leaf>", 'gray', 'white'),)  
+
+#### Assessing the performance
+
+# classify records in the test data.
+# set argument type = "class" in predict() to generate predicted class membership.
+default.ct.point.pred.train <- predict(default.ct,test.binary.data,type = "class")
+
+# generate confusion matrix for test data
+dt.cm.base.tree <- confusionMatrix(default.ct.point.pred.train, as.factor(test.binary.data$Response_binary))
+
+### repeated the code for the deeper tree
+deeper.ct.point.pred.test <- predict(deeper.ct,test.binary.data,type = "class")
+
+# generate confusion matrix for test data
+dt.cm.deeper.tree <- confusionMatrix(deeper.ct.point.pred.test, as.factor(test.binary.data$Response_binary))
+
+### By default, rpart uses gini impurity to select splits when performing classification. 
+#Now assessing the information gain instead by specifying it in the parms parameter.
+IG.ct <- rpart(Response_binary ~ ., data = train.binary.data, method = "class", parms = list(split = 'information'))
+
+# plot tree
+prp(IG.ct, type = 2, extra = 1, under = TRUE, split.font = 1, varlen = -10,  box.palette=c("red", "green"))
+
+IG.ct.pred.test <- predict(IG.ct,test.binary.data,type = "class")
+
+# generate confusion matrix for test data
+dt.cm.ig.tree <- confusionMatrix(IG.ct.pred.test, as.factor(test.binary.data$Response_binary))
+
+
+### Now, if we were to penalize the more missclassified non-acceptor than acceptor then we can add a loss cost to the model as done below 
+lossmatrix <- matrix(c(0,1,3,0), byrow = TRUE, nrow = 2)
+lossmatrix
+
+Loss.ct <- rpart(Response_binary ~ ., data = train.binary.data, method = "class", parms = list(loss = lossmatrix))
+prp(Loss.ct, type = 2, extra = 1, under = TRUE, split.font = 1, varlen = -10,  box.palette=c("red", "green"))
+Loss.ct.pred.test <- predict(Loss.ct,test.binary.data,type = "class")
+# generate confusion matrix for test data
+dt.cm.lm <- confusionMatrix(Loss.ct.pred.test, as.factor(test.binary.data$Response_binary))
+
+#### cross-validation procedure
+# argument xval refers to the number of folds to use in rpart's built-in
+# cross-validation procedure
+# argument cp sets the smallest value for the complexity parameter.
+# argument  minsplit requires that the minimum number of observations in a node be 5 before attempting
+#a split and that a split must decrease the overall lack of fit by a factor of 0.00001 (cost complexity factor) before being attempted.
+#If the next best split in growing a tree does not reduce the treeâs overall complexity by 0.00001, rpart will terminate the growing process. 
+
+cv.ct <- rpart(Response_binary ~ ., data = train.binary.data, method = "class", 
+               cp = 0.00001, minsplit = 20)
+prp(cv.ct, type = 2, extra = 1, under = TRUE, split.font = 1, varlen = -10,  box.palette=c("red", "green"))
+
+length(cv.ct$frame$var[cv.ct$frame$var == "<leaf>"])
+printcp(cv.ct)
+plotcp(cv.ct)
+
+rsq.rpart(cv.ct) # plot of approximate R-squared and relative error for different splits 
+print(cv.ct)
+
+# prune by lower cp
+pruned.ct <- prune(cv.ct, 
+                   cp = cv.ct$cptable[which.min(cv.ct$cptable[,"xerror"]),"CP"])
+length(pruned.ct$frame$var[pruned.ct$frame$var == "<leaf>"])
+
+prp(pruned.ct, type = 2, extra = 1, split.font = 1, varlen = -10, box.palette=c("red", "green"))  
+
+pruned.ct.point.pred.train <- predict(pruned.ct,train.binary.data,type = "class")
+prune.cm.train <- confusionMatrix(pruned.ct.point.pred.train, as.factor(train.binary.data$Response_binary))
+
+pruned.ct.point.pred.test <- predict(pruned.ct,test.binary.data,type = "class")
+prune.cm.test <-confusionMatrix(pruned.ct.point.pred.test, as.factor(test.binary.data$Response_binary))
+
+#### prune by lower cp and considering std
+set.seed(1)
+cv.ct <- rpart(Response_binary ~ ., data = train.binary.data, method = "class", cp = 0.00001, minsplit = 1, xval = 5) 
+length(cv.ct$frame$var[cv.ct$frame$var == "<leaf>"])
+
+printcp(cv.ct) 
+cv.ct.point.pred.test <- predict(cv.ct,test.binary.data,type = "class")
+dt.cv.cm<-confusionMatrix(cv.ct.point.pred.test, as.factor(test.binary.data$Response_binary))
+
+pruned.ct <- prune(cv.ct, cp = 0.000273)
+prp(pruned.ct, type = 1, extra = 1, under = TRUE, split.font = 1, varlen = -10, 
+    box.palette=c("red", "green")) 
+
+pruned.ct.point.pred.test <- predict(pruned.ct,test.binary.data,type = "class")
+dt.cv.prune.cm<- confusionMatrix(pruned.ct.point.pred.test, as.factor(test.binary.data$Response_binary))
+
+
+dt.cm.base.tree
+dt.cm.deeper.tree
+dt.cm.ig.tree
+dt.cm.lm
+prune.cm.test
+dt.cv.cm
+dt.cv.prune.cm
+```
+
+
+
+
+
+
+
+
+
+#FIT A NAIVE BAYES MODEL AND ASSESS ACCURACY
+```{r}
+set.seed(1)  # Setting Seed
+
+classifier <- naiveBayes(Response_binary ~ ., data = train.binary.data)
+
+# Predicting on test data
+y_pred <- predict(classifier, newdata = test.binary.data)
+ 
+# Confusion Matrix
+cm <- table(test.binary.data$Response_binary, y_pred)
+nb.cm <- confusionMatrix(cm) 
+nb.cm
+
+nb_roc = roc(test.binary.data$Response_binary ~ as.numeric(y_pred), plot = TRUE, print.auc = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+#KNN MODEL AND ACCURACY
+```{r}
+set.seed(1)
+
+#Converting the data to numeric so that KNN can be estimated correctly 
+binary.KNN<- as.data.frame(sapply(train_binary, unclass)) #using the entire data for this and split later 
+#Converts the factors/characters into numeric values so that we can find the nearest distance to assess the KNN model 
+
+str(binary.KNN)
+
+normalize <- function(x) {
+  num <- x - min(x)
+  denom <- max(x) - min(x)
+  return (num/denom)
+}
+
+norm.binary.KNN<-as.data.frame(lapply(binary.KNN, normalize))
+str(norm.binary.KNN)
+
+#SPLIT THE NORMALIZED DATA
+trainIndex.norm.KNN <- createDataPartition(norm.binary.KNN$Response, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+
+train.data.norm.KNN <- norm.binary.KNN[ trainIndex.norm.KNN,]
+test.data.norm.KNN  <- norm.binary.KNN[-trainIndex.norm.KNN,]
+
+colnames(train.data.norm.KNN)
+names(test.data.norm.KNN)[73] #index of response variable
+
+###########NORMALIZED DATA###########
+# Build the model
+travel_pred_k1 <- knn(train = train.data.norm.KNN[,-73], test = test.data.norm.KNN[,-73], cl = train.data.norm.KNN$Response_binary, k=1)
+travel_pred_k5 <- knn(train = train.data.norm.KNN[,-73], test = test.data.norm.KNN[,-73], cl = train.data.norm.KNN$Response_binary, k=5)
+travel_pred_k10 <- knn(train = train.data.norm.KNN[,-73], test = test.data.norm.KNN[,-73], cl = train.data.norm.KNN$Response_binary, k=10)
+travel_pred_k20 <- knn(train = train.data.norm.KNN[,-73], test = test.data.norm.KNN[,-73], cl = train.data.norm.KNN$Response_binary, k=20)
+travel_pred_k100 <- knn(train = train.data.norm.KNN[,-73], test = test.data.norm.KNN[,-73], cl = train.data.norm.KNN$Response_binary, k=100)
+travel_pred_k200 <- knn(train = train.data.norm.KNN[,-73], test = test.data.norm.KNN[,-73], cl = train.data.norm.KNN$Response_binary, k=200)
+travel_pred_k250 <- knn(train = train.data.norm.KNN[,-73], test = test.data.norm.KNN[,-73], cl = train.data.norm.KNN$Response_binary, k=250)
+
+#Evaluation of Your Model
+# Confusion matrix 
+table(test.data.norm.KNN$Response_binary, travel_pred_k1)
+table(test.data.norm.KNN$Response_binary, travel_pred_k5)
+table(test.data.norm.KNN$Response_binary, travel_pred_k10)
+table(test.data.norm.KNN$Response_binary, travel_pred_k20)
+table(test.data.norm.KNN$Response_binary, travel_pred_k100)
+table(test.data.norm.KNN$Response_binary, travel_pred_k200)
+table(test.data.norm.KNN$Response_binary, travel_pred_k250)
+
+knn.1.cm<-confusionMatrix(as.factor(test.data.norm.KNN$Response_binary), as.factor(travel_pred_k1))
+knn.5.cm<-confusionMatrix(as.factor(test.data.norm.KNN$Response_binary), as.factor(travel_pred_k5))
+knn.10.cm<-confusionMatrix(as.factor(test.data.norm.KNN$Response_binary), as.factor(travel_pred_k10))
+knn.20.cm<-confusionMatrix(as.factor(test.data.norm.KNN$Response_binary), as.factor(travel_pred_k20))
+knn.100.cm<-confusionMatrix(as.factor(test.data.norm.KNN$Response_binary), as.factor(travel_pred_k100))
+knn.200.cm<-confusionMatrix(as.factor(test.data.norm.KNN$Response_binary), as.factor(travel_pred_k200))
+knn.250.cm<-confusionMatrix(as.factor(test.data.norm.KNN$Response_binary), as.factor(travel_pred_k250))
+
+# Classification accuracy 
+sum(travel_pred_k1==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+sum(travel_pred_k5==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+sum(travel_pred_k10==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+sum(travel_pred_k20==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+sum(travel_pred_k100==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+sum(travel_pred_k200==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+sum(travel_pred_k250==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+
+#To study graphically which value of k gives us the best classification, we can plot Accuracy vs Choice of k.
+# Empty variables
+KNN_pred <- list()
+accuracy <- numeric()
+
+# From k=1 to k=100...
+for(k in 1:100){
+  # KnnTestPrediction for each k
+  KNN_pred[[k]] <- knn(train.data.norm.KNN[,-73], test.data.norm.KNN[,-73], train.data.norm.KNN$Response_binary, k, prob=TRUE)
+  
+  # Accuracy for each k   
+  accuracy[k] <- sum(KNN_pred[[k]]==test.data.norm.KNN$Response_binary)/length(test.data.norm.KNN$Response_binary)*100
+  
+}
+# Accuracy vs Choice of k
+?plot
+plot(accuracy, type="b", col="dodgerblue", 
+     xlab="k, number of neighbors", ylab="Classification accuracy", 
+     main="Accuracy vs Neighbors")
+
+# Add lines indicating k with best accuracy
+abline(v=which(accuracy==max(accuracy)), col="orange", lwd=1.5)
+
+# Add line for max accuracy seen
+abline(h=max(accuracy), col="red", lty=2)
+# lty=2 for dashed
+
+# Add line for min accuracy seen 
+abline(h=min(accuracy), col="grey", lty=2)
+
+```
+
+
+
+
+
+
+
+
+
+
+#USING CHI-SQUARE TEST AND ANOVA TEST FOR FEATURE SELECTION
+After removing the variables which are not statistically significant to the response variable, we will assess the impact on the models.
+
+```{r}
+set.seed(1)
+
+#CHI SQUARE FEATURE SELECTION (Categorical Vs Categorical)
+str(test.binary.data)
+colnames(train.binary.data)
+
+select<-c(3,7,8,9,10,11,14,16,31,32,33,72)
+print(chisq.test(train.binary.data[,3],train.binary.data$Response_binary))
+
+CHIS <- lapply(train.binary.data[,-select], function(x) chisq.test(train.binary.data[,73], x))
+chi_square_pvalue<-do.call(rbind, CHIS)[,c(1,3)]
+
+summary(do.call(rbind, CHIS)[,c(3)]>0.05) #3 VARIABLES HAVE A HIGHER PValue which means they are not statistically significant
+chi_square_pvalue[do.call(rbind, CHIS)[,c(3)]>0.05,] #These 3 categorical variables can be removed 
+chi_square_selection<-rownames(chi_square_pvalue[do.call(rbind, CHIS)[,c(3)]>0.05,])
+
+#Remove the above fields from the test and train data
+test.post.chi.sq<-test.binary.data
+test.post.chi.sq<-test.post.chi.sq[,!names(test.post.chi.sq) %in% chi_square_selection]
+dim(test.post.chi.sq)
+
+train.post.chi.sq<-train.binary.data
+train.post.chi.sq<-train.post.chi.sq[,!names(train.post.chi.sq) %in% chi_square_selection]
+dim(train.post.chi.sq)
+
+
+#ANOVA FEATURE SELECTION (Numerical Vs Categorical)
+
+names(train.binary.data)[select] #Numeric variables
+
+#Only numeric variables have been considered (Numerical Vs categorical)
+one.way.1 <- aov( Product_Info_4 ~ Response_binary, data = train.binary.data)
+one.way.2 <- aov( Ins_Age ~ Response_binary , data = train.binary.data)
+one.way.3 <- aov( Ht~ Response_binary, data = train.binary.data)
+one.way.4 <- aov( Wt~ Response_binary, data = train.binary.data)
+one.way.5 <- aov( BMI~ Response_binary, data = train.binary.data)
+one.way.6 <- aov( Employment_Info_1~ Response_binary, data = train.binary.data)
+one.way.7 <- aov( Employment_Info_4~ Response_binary, data = train.binary.data) 
+one.way.8 <- aov( Employment_Info_6~ Response_binary, data = train.binary.data)
+one.way.9 <- aov( Family_Hist_4~ Response_binary, data = train.binary.data)
+one.way.10 <- aov( Medical_History_1~ Response_binary, data = train.binary.data)
+one.way.11 <- aov( Med_keyword_count~ Response_binary, data = train.binary.data)
+one.way.12 <- aov( Family_Hist_1~ Response_binary, data = train.binary.data)
+
+options(scipen=9999)
+
+summary(one.way.1)
+summary(one.way.2)
+summary(one.way.3)
+summary(one.way.4)
+summary(one.way.5)
+summary(one.way.6)
+summary(one.way.7)
+summary(one.way.8)
+summary(one.way.9)
+summary(one.way.10)
+summary(one.way.11)
+
+#Since all numeric variables seem to be significant
+test.post.chi.ano<-test.post.chi.sq
+train.post.chi.ano<-train.post.chi.sq
+```
+
+
+
+
+
+
+
+
+
+#CHECK MODEL ACCURACY AFTER FEATURE ELIMINATION
+#LOGISTIC REGRESSION
+```{r}
+set.seed(1)
+
+logit.reg.chi <- glm(Response_binary ~ ., data = train.post.chi.ano, family = "binomial") 
+summary(logit.reg.chi)
+
+# use predict() with type = "response" to compute predicted probabilities. 
+logit.reg.pred.chi <- predict(logit.reg.chi, test.post.chi.ano, type = "response")
+logit.reg.pred.train.chi <- predict(logit.reg.chi, train.post.chi.ano, type = "response")
+
+# first 5 actual and predicted records
+data.frame(actual = test.post.chi.ano$Response_binary[1:5], predicted = logit.reg.pred.chi[1:5])
+
+# classification
+trainEstimatedResponse.chi=ifelse(logit.reg.pred.train.chi >0.5,1,0)
+trainEstimatedResponse.chi
+testEstimatedResponse.chi=ifelse(logit.reg.pred.chi >0.5,1,0)
+testEstimatedResponse.chi
+
+
+# Confusion matrix
+#Accuracy, Estimation
+table(train.post.chi.ano$Response_binary, trainEstimatedResponse.chi)
+table(test.post.chi.ano$Response_binary, testEstimatedResponse.chi)
+
+#Accuracy
+mean(trainEstimatedResponse.chi==train.post.chi.ano$Response_binary)
+mean(testEstimatedResponse.chi==test.post.chi.ano$Response_binary)
+
+train.cm.log.chi<-confusionMatrix(as.factor(ifelse(logit.reg.pred.train.chi>0.5, 1, 0)), 
+                train.post.chi.ano$Response_binary)
+test.cm.log.chi<-confusionMatrix(as.factor(ifelse(logit.reg.pred.chi>0.5, 1, 0)), 
+                test.post.chi.ano$Response_binary)
+train.cm.log.chi
+test.cm.log.chi
+```
+
+#RANDOM FOREST
+```{r}
+set.seed(1)
+
+rf.chi <- randomForest(as.factor(Response_binary) ~ ., data = train.post.chi.ano, ntree = 500, 
+                   mtry = 9, nodesize = 5, importance = TRUE, parms = list(loss = lossmatrix))  
+
+varImpPlot(rf.chi, type = 1)
+
+rf.pred.chi <- predict(rf.chi, test.post.chi.ano)
+
+test.cm.rf.1.chi<-confusionMatrix(rf.pred.chi, as.factor(test.post.chi.ano$Response_binary))
+
+#after removing the loss matrix
+rf_2.chi <- randomForest(as.factor(Response_binary) ~ ., data = train.post.chi.ano, ntree = 500, 
+                   mtry = 9, nodesize = 5, importance = TRUE)  
+
+varImpPlot(rf_2.chi, type = 1)
+
+rf.pred_2.chi <- predict(rf_2.chi, test.post.chi.ano)
+
+test.cm.rf.2.chi<-confusionMatrix(rf.pred_2.chi, as.factor(test.post.chi.ano$Response_binary))
+
+test.cm.rf.1.chi
+test.cm.rf.2.chi
+
+```
+
+
+
+
+
+
+
+
+
+
+#CLUSTERING
+```{r}
+#test.post.chi.ano
+#train.post.chi.ano
+
+#Does the data have any impact in identifying the risk mapping?
+#Let us look at the dependent/response field. Since this is the dependent variable, we can exclude this from our cluster analysis
+
+#PROPORTION OF BINARY OUTPUT
+p_0<-summary((train.post.chi.ano$Response_binary))[1]/(summary((train.post.chi.ano$Response_binary))[1]+summary((train.post.chi.ano$Response_binary))[2])
+
+p_1<-summary((train.post.chi.ano$Response_binary))[2]/(summary((train.post.chi.ano$Response_binary))[1]+summary((train.post.chi.ano$Response_binary))[2])
+
+#K-MEANS METHOD
+set.seed(1)
+
+#Data modifications
+sum(is.na(train.post.chi.ano))
+sapply(train.post.chi.ano, class)
+
+train.post.chi.ano_cluster<-as.data.frame(sapply(train.post.chi.ano, unclass))
+
+#Due to run computational limitations , we create a sample which can be used
+
+clustering_sample<-sample_frac(train.post.chi.ano_cluster, 10000/nrow(train.post.chi.ano_cluster))
+
+sapply(train.post.chi.ano_cluster, class)
+
+#function to compute the within cluster - sum of squares for each value of k
+wss<- function(k) {
+  kmeans(train.post.chi.ano_cluster,k,nstart = 25)$tot.withinss
+  }
+
+k.values <- 1:10
+wss_values <- map_dbl(k.values, wss)
+
+plot(k.values, wss_values,
+type="b", pch = 19, frame = FALSE,
+xlab="Number of clusters K",
+ylab="Total within-clusters sum of squares") #2 CLUSTERS SEEM TO BE THE BEST
+
+# The other method with visual aid is using factoextra package
+wss_sample<- function(k) {
+  kmeans(clustering_sample,k,nstart = 25)$tot.withinss
+  }
+wss_values_sample <- map_dbl(k.values, wss_sample)
+
+fviz_nbclust(clustering_sample, kmeans, method="wss") 
+#Size was exceeding 13Gb hence a sample of 10000 records have been filtered to see the shape of elbow graph
+
+#Average Silhouette Method:
+fviz_nbclust(clustering_sample, kmeans, method = "silhouette")
+
+#A merge
+kmeans_perf2 = function(data,maxc,ns)
+{
+result = as.data.frame(matrix(ncol=3, nrow=maxc-1))
+colnames(result) = c("clusters", "rsq","silhouette")
+dst <- daisy(data)
+for(i in 2:maxc) {
+cst <- kmeans(data,i,iter.max=100,nstart=ns)
+rsq <- 1-cst$tot.withinss/(cst$totss)
+slht <- silhouette(cst$cluster,dst)
+result[i-1,]=c(i,rsq,mean(slht[,3]))
+}
+ggplot(result, aes(clusters)) +
+geom_line(aes(y = rsq, colour = "rsq")) +
+geom_line(aes(y = silhouette, colour = "silhouette"))
+}
+kmeans_perf2(clustering_sample,10,ns=25) #GGPLOT
+
+#The silhouette & merge methods confirm that the ideal number of clustering is 2.
+
+#K = 2 SEEMS TO BE THE BEST CLUSTER COUNT
+K2<-kmeans(train.post.chi.ano_cluster,2,nstart = 25)
+K2
+K2$cluster #CLUSTER 1 & 2 - WILL BE ADDED IN OUR DATA TO SEE IF THIS IMPROVES PREDICTION
+names(K2)
+K2$size
+
+#clustering plot
+fviz_cluster(K2, geom = "point", data = train.post.chi.ano_cluster) + ggtitle("k = 2")
+
+#K-means clustering has embedded PCA which highlights two components accounting for only 12% of the variation
+#in the overall demographic dataset. The k-means method does not provide a more granular segmentation than what the business already has
+
+#K MEANS CLUSTERING FOR 2,3,4,5
+K2
+K3<-kmeans(train.post.chi.ano_cluster,3,nstart = 25)
+K4<-kmeans(train.post.chi.ano_cluster,4,nstart = 25)
+K5<-kmeans(train.post.chi.ano_cluster,5,nstart = 25)
+
+cldata <- rbind(data.frame(clustering="kmeans 4",cluster=K5$cluster,pref=train.post.chi.ano_cluster$Response_binary),
+data.frame(clustering="kmeans 3",cluster=K4$cluster,pref=train.post.chi.ano_cluster$Response_binary),
+data.frame(clustering="kmeans 2",cluster=K3$cluster,pref=train.post.chi.ano_cluster$Response_binary),
+data.frame(clustering="kmeans 2",cluster=K2$cluster,pref=train.post.chi.ano_cluster$Response_binary))
+gp <- group_by(cldata,clustering,cluster)
+print.data.frame(summarize(gp,size=n(),low=1-sum(pref==1)/length(pref),High=sum(pref==1)/length(pref)))
+
+#WHILE THERE IS NO CLEAR STARC DIFFERENCE IN PROBABILITY OF HIGH & LOW RISK
+#WE SEE RESULTS OF THE CLUSTER BEING IDENTIFIED WITH A PROBABILITY OF 54%-46% IN K MEANS 2,3,4. Since, the elbow plots have clearly indicated 2 as a good choice for the clusters, we will focus on k means 2.
+
+
+#HIERARCHIEL CLUSTERING
+#1.Elbow Method:
+fviz_nbclust(clustering_sample, FUN = hcut, method = "wss")
+#2.Average Silhouette Method:
+fviz_nbclust(clustering_sample, FUN = hcut, method = "silhouette")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#USE THE CLUSTERS GIVEN BY K-MEANS CLUSTERING TO ASSESS THE IMPACT ON PREDICTION
+#LOGISTIC REGRESSION
+```{r}
+set.seed(1)
+train_cluster <- train.post.chi.ano
+train_cluster$cluster<-K2$cluster
+
+#Clustering output for the test data which will act as a predictor
+test.post.chi.ano_cluster<-as.data.frame(sapply(test.post.chi.ano, unclass))
+K2_test<-kmeans(test.post.chi.ano_cluster,2,nstart = 25)
+
+test_cluster <- test.post.chi.ano
+test_cluster$cluster<-K2_test$cluster
+
+train_cluster$cluster<-as.factor(train_cluster$cluster)
+test_cluster$cluster<-as.factor(test_cluster$cluster)
+dim(train_cluster)
+
+#FIT A LOGISTIC MODEL ON ALL THE DIMENSIONS
+logit.reg.cluster <- glm(Response_binary ~ ., data = train_cluster, family = "binomial") 
+summary(logit.reg.cluster)
+
+# use predict() with type = "response" to compute predicted probabilities. 
+logit.reg.pred.cluster <- predict(logit.reg.cluster, test_cluster, type = "response")
+logit.reg.pred.train.cluster <- predict(logit.reg.cluster, train_cluster, type = "response")
+
+# first 5 actual and predicted records
+data.frame(actual = test_cluster$Response_binary[1:5], predicted = logit.reg.pred.cluster[1:5])
+
+
+# classification
+trainEstimatedResponse.cluster=ifelse(logit.reg.pred.train.cluster >0.5,1,0)
+testEstimatedResponse.cluster=ifelse(logit.reg.pred.cluster >0.5,1,0)
+
+# Confusion matrix of KnnTestPrediction_k1
+#Accuracy, Estimation
+table(train_cluster$Response_binary, trainEstimatedResponse.cluster)
+table(test_cluster$Response_binary, testEstimatedResponse.cluster)
+
+#Accuracy
+mean(trainEstimatedResponse.cluster==train_cluster$Response_binary)
+mean(testEstimatedResponse.cluster==test_cluster$Response_binary)
+
+#Confusion Matrix
+train.cluster.cm<-confusionMatrix(as.factor(ifelse(logit.reg.pred.train.cluster>0.5, 1, 0)), 
+                train_cluster$Response_binary)
+test.cluster.cm<-confusionMatrix(as.factor(ifelse(logit.reg.pred.cluster>0.5, 1, 0)), 
+                test_cluster$Response_binary)
+
+
+test_roc = roc(test_cluster$Response_binary ~ logit.reg.pred.cluster, plot = TRUE, print.auc = TRUE)
+```
+
+
+
+
+
+#RANDOM FOREST (AFTER CHISQUARE & CLUSTERING)
+
+```{r}
+#train_cluster
+#test_cluster
+set.seed(1)
+
+rf_cluster <- randomForest(as.factor(Response_binary) ~ ., data = train_cluster, ntree = 500, 
+                   mtry = 4, nodesize = 5, importance = TRUE, parms = list(loss = lossmatrix))  
+
+varImpPlot(rf_cluster, type = 1)
+
+rf.pred.cluster <- predict(rf_cluster, test_cluster)
+
+rf.cluster.cm<-confusionMatrix(rf.pred.cluster, as.factor(test_cluster$Response_binary))
+
+#after removing the loss matrix
+rf_cluster_2 <- randomForest(as.factor(Response_binary) ~ ., data = train_cluster, ntree = 500, 
+                   mtry = 4, nodesize = 5, importance = TRUE)  
+
+varImpPlot(rf_cluster_2, type = 1)
+
+rf.pred_cluster_2 <- predict(rf_cluster_2, test_cluster)
+
+rf.cluster.cm2<-confusionMatrix(rf.pred_cluster_2, as.factor(test_cluster$Response_binary))
+```
