@@ -8,7 +8,7 @@ Assigns a risk-classification level to life insurance applicants.
 
 **Work Breakdown**
 - Exploratory analysis performed by Ryan & Jaitika
-- Model Creation & testing performed by Douglas & Jaitika
+- Model Creation & testing performed by Douglas (All Python/Some R) & Jaitika (All R)
 
 **Directory Info:**
 - ST694-Final-Project-Report.pdf contains the entire put-together report for a quick view.
