@@ -7,9 +7,8 @@ Project done by:
 Assigns a risk-classification level to life insurance applicants.
 
 **Work Breakdown**
-
-Exploratory analysis performed by Ryan & Jaitika
-Model Creation & testing performed by Douglas & Jaitika
+- Exploratory analysis performed by Ryan & Jaitika
+- Model Creation & testing performed by Douglas & Jaitika
 
 **Directory Info:**
 - ST694-Final-Project-Report.pdf contains the entire put-together report for a quick view.
